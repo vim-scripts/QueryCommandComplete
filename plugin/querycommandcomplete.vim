@@ -9,22 +9,27 @@
 " to any other kind of functionality by modifying the exposed setting
 " parameters.
 "
-" Last Change: 2012 Jul 15
+" Last Change: 2012 Sep 17
 " Maintainer: Caio Romão <caioromao@gmail.com>
 " License: This file is placed in the public domain
+" Contributors:
+"   Brian Henderson <https://github.com/bhenderson>
 "
 " Setup:
 "   This plugin exports the completion function QueryCommandComplete,
-"   which needs to be set as the complete function (or omni function)
-"   in order to work.
+"   which can be set as the complete function (or omni function) for
+"   any filetype. If you have a working mutt setup with query_command
+"   configured, the plugin works out of the box.
 "
 "   Example:
-"       let g:gcc_query_command='abook'
+"       let g:qcc_query_command='abook'
 "       au BufRead /tmp/mutt* setlocal omnifunc=QueryCommandComplete
 "
 " Settings:
 "   g:qcc_query_command
 "       External command that queries for contacts
+"       If empty, QueryCommandComplete tries to guess what command to
+"       run by executing `mutt -Q query_command`.
 "
 "   g:qcc_line_separator
 "       Separator for each entry in the result from the query
@@ -43,24 +48,33 @@ if exists("g:loaded_QueryCommandComplete") || &cp
   finish
 endif
 
+" use mutt query command as default
 if !exists("g:qcc_query_command")
-    echoerr "QueryCommandComplete: g:qcc_query_command not set!"
-    finish
+    let s:querycmd = system('mutt -Q query_command 2>/dev/null')
+    let s:querycmd = substitute(s:querycmd, '^query_command=\"\(.*\) .%s.\"\n', '\1','')
+
+    if len(s:querycmd)
+        let g:qcc_query_command = s:querycmd
+        autocmd FileType mail setlocal omnifunc=QueryCommandComplete
+    else
+        echoerr "QueryCommandComplete: g:qcc_query_command not set!"
+        finish
+    endif
 endif
 
 let g:loaded_QueryCommandComplete = 1
 let s:save_cpo = &cpo
 set cpo&vim
 
-function! DefaultIfUnset(name, default)
+function! s:DefaultIfUnset(name, default)
     if !exists(a:name)
         let {a:name} = a:default
     endif
 endfunction
 
-call DefaultIfUnset('g:qcc_line_separator', '\n')
-call DefaultIfUnset('g:qcc_field_separator', '\t')
-call DefaultIfUnset('g:qcc_pattern', '^\(To\|Cc\|Bcc\|From\|Reply-To\):')
+call s:DefaultIfUnset('g:qcc_line_separator', '\n')
+call s:DefaultIfUnset('g:qcc_field_separator', '\t')
+call s:DefaultIfUnset('g:qcc_pattern', '^\(To\|Cc\|Bcc\|From\|Reply-To\):')
 
 function! s:MakeCompletionEntry(name, email, other)
     let entry = {}
