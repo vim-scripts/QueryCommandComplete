@@ -1,7 +1,7 @@
 " Query Command Complete
 " ======================
 "
-" Vim plugin to suggest completions with the results or an external
+" Vim plugin to suggest completions with the results of an external
 " query command.
 "
 " The original intention is to use it as a mutt query_command wrapper
@@ -9,11 +9,12 @@
 " to any other kind of functionality by modifying the exposed setting
 " parameters.
 "
-" Last Change: 2012 Sep 17
-" Maintainer: Caio Romão <caioromao@gmail.com>
+" Last Change: 2012 Dec 29
+" Author: Caio Romão <caioromao@gmail.com>
 " License: This file is placed in the public domain
 " Contributors:
 "   Brian Henderson <https://github.com/bhenderson>
+"   Mark Stillwell <https://github.com/marklee77>
 "
 " Setup:
 "   This plugin exports the completion function QueryCommandComplete,
@@ -43,18 +44,31 @@
 "       Pattern used to match against the current line to decide
 "       whether to call the query command
 "       default: '^\(To\|Cc\|Bcc\|From\|Reply-To\):'
+"
+"   g:qcc_multiline
+"       Whether to try matching g:qcc_pattern against the current
+"       and any previous line
+"       default: 0
+"
+"   g:qcc_multiline_pattern
+"       Pattern to match against the current line when deciding
+"       wether to keep looking for a line that matches g:qcc_pattern
+"       This provides finer control over the recursion, which
+"       is useful if calling the completion on really big files.
+"       default: '.*'
 
 if exists("g:loaded_QueryCommandComplete") || &cp
   finish
 endif
 
-" use mutt query command as default
+" Try to use mutt's query_command by default if nothing is set
 if !exists("g:qcc_query_command")
     let s:querycmd = system('mutt -Q query_command 2>/dev/null')
-    let s:querycmd = substitute(s:querycmd, '^query_command=\"\(.*\) .%s.\"\n', '\1','')
+    let s:querycmd = substitute(s:querycmd, '^query_command="\(.*\)"\n', '\1','')
 
     if len(s:querycmd)
         let g:qcc_query_command = s:querycmd
+        let g:qcc_multiline = 1
         autocmd FileType mail setlocal omnifunc=QueryCommandComplete
     else
         echoerr "QueryCommandComplete: g:qcc_query_command not set!"
@@ -75,6 +89,8 @@ endfunction
 call s:DefaultIfUnset('g:qcc_line_separator', '\n')
 call s:DefaultIfUnset('g:qcc_field_separator', '\t')
 call s:DefaultIfUnset('g:qcc_pattern', '^\(To\|Cc\|Bcc\|From\|Reply-To\):')
+call s:DefaultIfUnset('g:qcc_multiline', 0)
+call s:DefaultIfUnset('g:qcc_multiline_pattern', '.*')
 
 function! s:MakeCompletionEntry(name, email, other)
     let entry = {}
@@ -107,12 +123,12 @@ function! s:GenerateCompletions(findstart, base)
         return s:FindStartingIndex()
     endif
 
-    if a:base =~ '^ *$'
-        return []
-    endif
-
     let results = []
-    let cmd = g:qcc_query_command . ' ' . shellescape(a:base)
+    let cmd = g:qcc_query_command
+    if cmd !~ '%s'
+        let cmd .= ' %s'
+    endif
+    let cmd = substitute(cmd, '%s', shellescape(a:base), '')
     let lines = split(system(cmd), g:qcc_line_separator)
 
     for my_line in lines
@@ -138,11 +154,22 @@ function! s:GenerateCompletions(findstart, base)
     return results
 endfunction
 
-function! QueryCommandComplete(findstart, base)
-    let cur_line = getline(line('.'))
+function! s:ShouldGenerateCompletions(line_number)
+    let current_line = getline(a:line_number)
 
-    " TODO: Figure out a way to handle multiline
-    if cur_line =~ g:qcc_pattern
+    if current_line =~ g:qcc_pattern
+        return 1
+    endif
+
+    if ! g:qcc_multiline || a:line_number <= 1 || current_line !~ g:qcc_multiline_pattern
+        return 0
+    endif
+
+    return s:ShouldGenerateCompletions(a:line_number - 1)
+endfunction
+
+function! QueryCommandComplete(findstart, base)
+    if s:ShouldGenerateCompletions(line('.'))
         return s:GenerateCompletions(a:findstart, a:base)
     endif
 endfunction
